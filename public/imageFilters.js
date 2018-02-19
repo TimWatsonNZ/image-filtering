@@ -80,7 +80,7 @@ img.onload = function() {
   // const t = pipe(pixels, width, height, [threshold(128)]);
 
   let before = new Date();
-  const clustered = cluster(pixels, 10);
+  const clustered = pipe(cluster(pixels, 12, 2), width, height, [gaussianBlur]);
 
   console.log("Time taken: ", new Date() - before);
   imageData.data.set(clustered);
@@ -92,36 +92,81 @@ const cluster = (pixels, nClusters, iterations) => {
   const randomPosition = () => Math.floor(Math.random() * 255);
   const randomRgb = () => [randomPosition(), randomPosition(), randomPosition()];
 
-  const clusters = [...Array(nClusters)].map(_ => ({ rgb: randomRgb(), bucket: [] }) );
-
   const findDistance = (c, r) => {
     return Math.sqrt(Math.pow(c[0] - r[0], 2) + Math.pow(c[1] - r[1], 2), Math.pow(c[2] - r[2], 2));
   }
 
-  const closest = (rgb) => {
+  const closest = (rgb, clusters) => {
     let closestDistance = Infinity;
     let closest = null;
 
-    clusters.forEach(c => {
-      let distance = findDistance(rgb, c
-      );
+    clusters.forEach(cluster => {
+      let distance = findDistance(rgb, cluster.rgb);
+
       if (distance < closestDistance) {
         closestDistance = distance;
-        closest = c;
+        closest = cluster;
       }
     });
 
     return closest;
   }
+  
+  const recalculateClusters = (clusters) => {
+    const newClusters = [];
 
-  let buffer = [];
-  for(let i=0;i<pixels.length;i+= 4) {
-    let closestCluster = closest([pixels[i], pixels[i+1], pixels[i+2]]);
-    closestCluster.bucket.push({ index: i, pixels: [pixels[i], pixels[i+1], pixels[i+2]]});
+    //  Iterate cluster pixels and find avg position.
+    clusters.forEach(cluster => {
+      const avgRgb = { r: 0, g: 0, b: 0};
+
+      cluster.pixels.forEach(pixel => {
+        avgRgb.r += pixel.pixels[0];
+        avgRgb.g += pixel.pixels[1];
+        avgRgb.b += pixel.pixels[2];
+      });
+
+      avgRgb.r /= cluster.pixels.length;
+      avgRgb.g /= cluster.pixels.length;
+      avgRgb.b /= cluster.pixels.length;
+
+      cluster.rgb = [avgRgb.r, avgRgb.g, avgRgb.b];
+    });
+
+    return newClusters;
   }
 
-  for(let i=0;i<clusters.length;i++) {
+  //  For each pixel find closest cluster.
+  const assignPixelsToClusters = (pixels, clusters) => {
+    
+    for(let i=0;i<pixels.length;i+= 4) {
+      let closestCluster = closest([pixels[i], pixels[i+1], pixels[i+2]], clusters);
+      closestCluster.pixels.push({ index: i, pixels: [pixels[i], pixels[i+1], pixels[i+2]]});
+    }  
+  }
 
+  //  For each cluster write pixels to buffer.
+  const writeOutClustersToBuffer = (clusters) => {
+    let buffer = [];
+
+    clusters.forEach(cluster => {
+      cluster.pixels.forEach(pixelGroup => {
+        buffer[pixelGroup.index] =     cluster.rgb[0];
+        buffer[pixelGroup.index + 1] = cluster.rgb[1];
+        buffer[pixelGroup.index + 2] = cluster.rgb[2];
+        buffer[pixelGroup.index + 3] = 255;
+      });
+    });
+
+    return buffer;
+  }
+
+  const clusters = [...Array(nClusters)].map(_ => ({ rgb: randomRgb(), pixels: [] }) );
+  let buffer = [...pixels];
+  for(let i = 0;i<iterations;i++) {
+    assignPixelsToClusters(buffer, clusters);
+    let newClusters = recalculateClusters(clusters);
+    buffer = writeOutClustersToBuffer(clusters);
+    clusters.map(cluster => ({ ...cluster, pixels: [] }));
   }
 
   return buffer;

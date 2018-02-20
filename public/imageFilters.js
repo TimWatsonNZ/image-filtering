@@ -1,6 +1,6 @@
 
 var img = new Image();
-var url = 'http://localhost:3000/family.jpg';
+var url = 'http://localhost:3000/small-family.jpg';
 img.src = url;
 
 img.onload = function() {
@@ -80,7 +80,8 @@ img.onload = function() {
   // const t = pipe(pixels, width, height, [threshold(128)]);
 
   let before = new Date();
-  const clustered = pipe(cluster(pixels, 12, 2), width, height, [gaussianBlur]);
+  const downsampled = pipe(pixels, width, height, [median, gaussianBlur, contrastRgb(0.11)]);
+  const clustered = pipe(randomlyCluster(downsampled, 16, 5), width, height, []);
 
   console.log("Time taken: ", new Date() - before);
   imageData.data.set(clustered);
@@ -88,10 +89,17 @@ img.onload = function() {
   ctx.putImageData(imageData, 0, 0);
 };
 
-const cluster = (pixels, nClusters, iterations) => {
+const randomlyCluster = (pixels, nClusters, iterations) => {
   const randomPosition = () => Math.floor(Math.random() * 255);
   const randomRgb = () => [randomPosition(), randomPosition(), randomPosition()];
+  const clusters = [...Array(nClusters)].map(_ => randomRgb() );
 
+  return cluster(pixels, clusters, iterations);
+}
+
+const cluster = (pixels, inputClusters, iterations) => {
+  let clusters = inputClusters.map(c => ({ rgb: c, pixels: []}));
+  
   const findDistance = (c, r) => {
     return Math.sqrt(Math.pow(c[0] - r[0], 2) + Math.pow(c[1] - r[1], 2), Math.pow(c[2] - r[2], 2));
   }
@@ -129,7 +137,7 @@ const cluster = (pixels, nClusters, iterations) => {
       avgRgb.g /= cluster.pixels.length;
       avgRgb.b /= cluster.pixels.length;
 
-      cluster.rgb = [avgRgb.r, avgRgb.g, avgRgb.b];
+      newClusters.push({ ...cluster, rgb: [avgRgb.r, avgRgb.g, avgRgb.b] });
     });
 
     return newClusters;
@@ -160,15 +168,13 @@ const cluster = (pixels, nClusters, iterations) => {
     return buffer;
   }
 
-  const clusters = [...Array(nClusters)].map(_ => ({ rgb: randomRgb(), pixels: [] }) );
   let buffer = [...pixels];
   for(let i = 0;i<iterations;i++) {
     assignPixelsToClusters(buffer, clusters);
-    let newClusters = recalculateClusters(clusters);
-    buffer = writeOutClustersToBuffer(clusters);
-    clusters.map(cluster => ({ ...cluster, pixels: [] }));
+    if (iterations > 1) clusters = recalculateClusters(clusters);
   }
 
+  buffer = writeOutClustersToBuffer(clusters);
   return buffer;
 }
 
